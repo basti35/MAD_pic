@@ -30,10 +30,11 @@
 	DATO1
 	DATO2
 	DATO3
-	orange
-	lemon
-	vodka
-	vodka_p
+	orange;variabili in cui memorizziamo i valori dei relativi contatori che andranno comunicati allo slave via CAN
+	lemon;
+	vodka;
+	vodka_p;
+	msg_usart ;variabile di appoggio per l'invio di messaggi via USART
 	ENDC
 
 	ORG	0x00
@@ -58,7 +59,7 @@
 CAN;galleggianti bad news
 	call RECEIVE
 
-	banksel PIR3
+	banksel PIR3 ;azzero il flag di interrupt buffer 0
 	bcf PIR3,0
 	banksel INTCON;riabilitiamo gli interrupt generali
 	bsf INTCON,7
@@ -66,15 +67,21 @@ CAN;galleggianti bad news
 
 
 USART
+
 	call USART_R
 	nop
+
 	nop
 	movlw B'00001111'
-	andwf message
+	banksel message
+	andwf message,W
 	movwf message
 	nop ;test per vedere quale ricetta Ë stata richiesta dalla FPGA per poi inviarla via CAN allo slave
 
 	;controllo quale codice ricetta ho ricevuto nel messaggio e richiamo laricetta corrispondente
+
+
+;fin qua ci arriva
 
 	movlw B'00000001' ;ricetta 1
 	CPFSEQ message
@@ -82,15 +89,17 @@ USART
 	call receipt1
 
 comp2
-
+;fin qua ci arriva
 	movlw B'00000010' ;ricetta 2
+	nop
 	CPFSEQ message
 	goto comp3
 	call receipt2
 
 comp3
-
+; fin qua ci arriva
 	movlw B'00000011' ;ricetta 3
+	nop
 	CPFSEQ message
 	goto comp4
 	call receipt3
@@ -98,6 +107,7 @@ comp3
 comp4
 
 	movlw B'00000100' ;ricetta 4
+	nop
 	CPFSEQ message
 	goto comp5
 	call receipt4
@@ -105,6 +115,7 @@ comp4
 comp5
 
 	movlw B'00000101' ;ricetta 5
+	nop
 	CPFSEQ message
 	goto comp6
 	call receipt5
@@ -112,6 +123,7 @@ comp5
 comp6
 
 	movlw B'00000110' ;ricetta 6
+	nop
 	CPFSEQ message
 	goto comp7
 	call receipt6
@@ -119,6 +131,7 @@ comp6
 comp7
 
 	movlw B'00000111' ;ricetta 7
+	nop
 	CPFSEQ message
 	goto comp8
 	call receipt7
@@ -126,6 +139,7 @@ comp7
 comp8
 
 	movlw B'00001000' ;ricetta 8
+	nop
 	CPFSEQ message
 	goto comp9
 	call receipt8
@@ -133,18 +147,23 @@ comp8
 comp9
 
 	movlw B'00001001' ;ricetta 9
+	nop
 	CPFSEQ message
 	goto comp10
 	call receipt9
 
 comp10
 	
-	movlw B'00001001' ;ricetta 10
+	movlw B'00001010' ;ricetta 10
+	nop
 	CPFSEQ message
 	goto end_comp
 	call receipt10
 
 end_comp
+
+	bsf PORTB,0;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;metto qua l accensione del led per vedere se di qui ci passa...per ora no
+;;;;;;;;;;;;;
 
 	movlw	B'00001000' ;Identificativo parte alta
 	banksel	IDH	
@@ -154,7 +173,7 @@ end_comp
 	banksel	IDL
 	movwf	IDL
 	
-	movlw	B'00000100'	;Invio un solo byte
+	movlw	B'00000100'	;Invio 4 byte
 	banksel	DLC
 	movwf	DLC
 	;TXRTR    Ë il bit che bisogna settare se si vuole ricevere una risposta una volta inviato il dato....mettendolo a 0 gli si dice che non vogliamo una risposta.
@@ -164,19 +183,31 @@ end_comp
 	movff vodka_p, DATO1
 	movff lemon, DATO2
 	movff vodka, DATO3
-	
+
+
+
 	call invio_msg
 	nop
+
+
 	call wait_answer
 	nop
-	call RECEIVE
+
+	call RECEIVE	;qui ci andrebbe un controllo per vedere se il messaggio ricevuto è quello di fine erogazione
 
 	;a questo punto si manda il messaggiodi erogazione terminata via usart alla FPGA
 
+	movlw 'F' ;F indica la fine dell'erogazione
+	banksel msg_usart
+	movwf msg_usart
+	call send_usart
+	nop
+	
+no_Rec
 	nop
 	nop
 	banksel PIR1
-	bcf PIR1,5
+	bcf PIR1,5 ;azzeriamo il flag di interrupt da usart
 	banksel INTCON;riabilitiamo gli interrupt generali
 	bsf INTCON,7
 	retfie
@@ -263,7 +294,7 @@ START
 	movlw B'00000000'
 	movwf PIR3
 
-	banksel PIE1		;disabilito tutti gli interrupt relativi a questo registro
+	banksel PIE1		;disabilito tutti gli interrupt relativi a questo registro in particolare a quello dell usart che attiveremo al momento opportuno
 	movlw B'00000000'
 	movwf PIE1
 
@@ -271,16 +302,9 @@ START
 	movlw B'00000000'	;disabilito tutti gli interrupt relativi a questo registro
 	movwf PIE2
 
-	banksel PIE3		;abilito interrupt relativi al CAN, sono tutti in questi registri
-	
-	bcf PIE3,IRXIE 	;disabilito interrupt per messaggi ricevuti non validi
-	bcf PIE3,WAKIE 	;disabilito gli interrupt attivati da attività del bus
-	bcf PIE3,ERRIE 	;disabilito gli interrupt dovuti a errori del bus CAN
-	bcf PIE3,TXB2IE ;disabilito gli interrupt trasmissione messaggio da buffer 2
-	bcf PIE3,TXB1IE	;disabilito gli interrupt trasmissione messaggio da buffer 1
-	bcf PIE3,TXB0IE	;disabilito gli interrupt trasmissione messaggio da buffer 0
-	bcf PIE3,RXB1IE	;disabilito gli interrupt ricezione messaggio in buffer 1
-	bcf PIE3,RXB0IE	;disabilito gli interrupt ricezione messaggio da buffer 0
+	banksel PIE3		;disabilito gli interrupt del PIE3, in particolare quello del CAN che attiveremo al momento opportuno
+	movlw B'00000000'
+	movwf PIE3
 
 ;----------------------------------------------------------------------------------------------
 ;	                        CONFIGURAZIONE MODULO CAN
@@ -332,7 +356,7 @@ CONFIGMODE
 	
 	banksel	RXF0SIDL
 	movlw	B'10000000'  	;configuro i restanti 3 bit e abilito l'ID solo di standard messages (bit3=0)
-	movwf	RXF0SIDL
+	movwf	RXF0SIDL		;filtro per messaggio fine erogazione
 
 	banksel	RXF1SIDH		;filtro 1 riceve richiesta Tatt=00001/000101
 	movlw	B'00001000'   	;configuro i primi 8 bit del filtro 1
@@ -340,7 +364,7 @@ CONFIGMODE
 	
 	banksel	RXF1SIDL
 	movlw	B'10100000'  	;configuro i restanti 3 bit e abilito l'ID solo di standard messages (bit3=0)
-	movwf	RXF1SIDL
+	movwf	RXF1SIDL		;filtro per messaggio risposta livelli
 	
 	banksel	RXM0SIDH
 	movlw	B'11111111'   	;configuro i primi 8 bit della maschera 0
@@ -426,12 +450,7 @@ NORMALMODE
 	btfsc 	CANSTAT,OPMODE0	
 	goto 	NORMALMODE
 
-	banksel PORTE
-	bsf	PORTE,1
-;Accendo il led di funzionamento del pic
 	clrf flag; inizializzato a 0 la variabile flag
-
-
 
 ;************************************************************************************************
 ;                                   	INIZIALIZZAZIONE USART
@@ -469,21 +488,7 @@ NORMALMODE
 	bcf RCSTA,0;;Ë per il nono bit che non abbiamo
 	
 
-;AZZERO il flag dell interrupt della ricezione usart
-	banksel PIR1
-	bcf PIR1,RCIF
-
-;abilito gli interrupt in ricezione usart
-	banksel PIE1
-	bsf PIE1, RCIE
-
-
-
-
-;************************************************************************************************
-;                                   PROGRAMMA PRINCIPALE
-;************************************************************************************************
-INITIALIZE_RECEPIT
+INITIALIZE_RECEPIT ;inizializzazione delle variabili da utilizzare nel programma
 	banksel message
 	clrf message
 	banksel orange
@@ -495,8 +500,16 @@ INITIALIZE_RECEPIT
 	banksel lemon
 	clrf lemon
 
-INITIALIZE_RECEIPT_RS; qua metteremo l'aggiornamento delle ricette via RS232. Ora lo lasciamo vuoto.
+INITIALIZE_RECEIPT_RS; qua metteremo l'aggiornamento delle ricette via RS232, se avremo tempo e modo. Ora lo lasciamo vuoto.
 	nop
+
+;Accendo il led di funzionamento del pic
+	banksel PORTE
+	bsf	PORTE,1
+
+;************************************************************************************************
+;                                   PROGRAMMA PRINCIPALE
+;************************************************************************************************
 
 
 CHECK_STATE_SLAVE
@@ -520,19 +533,43 @@ CHECK_STATE_SLAVE
 	goto CHECK_STATE_SLAVE
 	nop
 	nop
+	
+	;abilito gli interrupt ora in modo da evitare problemi di interrupt invio messaggi FPGA
+	
 	banksel PIE3;setto interrupt per buffer 0 e 1 pieno
 	bsf PIE3,1
 	bsf PIE3,0
 	banksel INTCON; abilito gli interrupt generali
+
+	;AZZERO il flag dell interrupt della ricezione usart
+	banksel PIR1
+	bcf PIR1,RCIF
+
+;abilito gli interrupt in ricezione usart
+	banksel PIE1
+	bsf PIE1, RCIE
+	
+;abilito gli iterrupt generali
 	bsf INTCON,7
 	bsf INTCON,6
+	nop
+	
+	;invio alla FPGA un messaggio di livelli ok
+
+	movlw 'L' ;L indica livelli ok
+	banksel msg_usart
+	movwf msg_usart
+	call send_usart	
 	nop
 	
 MAIN
 	nop
 	nop
 	nop
-
+    banksel flag
+    btfss flag,0
+    goto CHECK_STATE_SLAVE
+    nop
 	goto MAIN
 
 ;---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -754,7 +791,7 @@ dlyloop
 invio_msg
 	nop
 	nop
-		
+
 	banksel	IDH
 	movf	IDH,W
 	banksel	TXB0SIDH
@@ -796,7 +833,7 @@ invio_msg
 	banksel TXB0CON	
 	bsf		TXB0CON,TXREQ
 	nop
-	
+
 invia	
 	nop
 	btfss	TXB0CON,TXREQ
@@ -828,11 +865,13 @@ trasmissione_positiva
 wait_answer
 	nop
 	nop
-	btfss RXB0CON,RXFUL
+	banksel RXB0CON
+	btfss RXB0CON,RXFUL ;controllo il bit flag di riempimento buffer 0
 	goto wait_answer
 	nop
 	nop
-	bcf RXB0CON, RXFUL
+	banksel RXB0CON
+	bcf RXB0CON, RXFUL ;reset bit flag buffer 0
 	nop
 	nop
 	nop
@@ -866,7 +905,8 @@ test_answer1
 	movff RXB0D0, temp_d0
 
 	banksel RXB0CON
-	bcf RXB0CON,7; azzero il flag che mi indica che il buffer 0 Ë pieno. cosÏ possiamo attendere un altro messaggio ne caso in cui i galleggianti non siano ancora ok
+	bcf RXB0CON,7; azzero il flag che mi indica che il buffer 0 Ë pieno. 
+				 ;cosÏ possiamo attendere un altro messaggio ne caso in cui i galleggianti non siano ancora ok
 
 	btfss temp_sidl,5 ;testiamo se ilmessaggio ricevuto ha l'identificativo del messagio risposta livelli. Se non Ë lui torno al CHECK_STATE_SLAVE
 	return
@@ -910,26 +950,36 @@ USART_R
 	goto Error_Usart
 	btfsc RCSTA,1
 	goto Error_Usart
-
-	movf RCREG,W
+	
+	banksel message
+	
+	movff RCREG, message
+	;movf RCREG,W
 ;mettiamo il contenuto di ciÚ che Ë stato ricevuto nel working register nella variabile "message"
-	movwf message
-
+	;movwf message
 
 	return
 
 Error_Usart
-	banksel TXREG
+	
 	movlw 'E'
-	movwf TXREG
-	banksel TXSTA
-TX_E btfss TXSTA, TRMT
-	goto TX_E
-
+	banksel msg_usart
+	movwf msg_usart
+	call send_usart
 	clrf message
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;																		TRASMISSIONE USART
 
-
+send_usart
+	banksel msg_usart ;variabile di appoggio per inviare messaggi via usart
+	movf msg_usart, W
+	banksel TXREG
+	movwf TXREG
+	banksel TXSTA
+TX_E btfss TXSTA, TRMT
+	goto TX_E
+	nop
+	return
 	end	
